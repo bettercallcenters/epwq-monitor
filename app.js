@@ -18,7 +18,7 @@ const PHOTOS = {
   "Anilu": "assets/anilu.png",
 };
 
-let map, markers = {}, selectedId = null, fittedOnce = false;
+let map, markers = {}, trails = {}, selectedId = null, fittedOnce = false;
 
 function statusOf(w) { return w.status; }
 function initials(name) { return name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase(); }
@@ -60,6 +60,24 @@ function pinIcon(w) {
 
 function renderMap(workers) {
   const active = workers.filter(w => w.status !== "off");
+
+  // Dibuja/actualiza el CAMINO (recorrido) de cada trabajador.
+  workers.forEach(w => {
+    const color = w.status === "moving" ? "#22c55e" : w.status === "idle" ? "#f59e0b" : "#9aa2b1";
+    if (w.trail && w.trail.length > 1) {
+      if (trails[w.id]) {
+        trails[w.id].setLatLngs(w.trail).setStyle({ color });
+      } else {
+        trails[w.id] = L.polyline(w.trail, {
+          color, weight: 4, opacity: 0.85, lineJoin: "round", lineCap: "round",
+        }).addTo(map);
+      }
+    } else if (trails[w.id]) {
+      map.removeLayer(trails[w.id]);
+      delete trails[w.id];
+    }
+  });
+
   active.forEach(w => {
     const pos = [w.lat, w.lng];
     if (markers[w.id]) {
@@ -159,6 +177,17 @@ async function loadFromSupabase() {
       .limit(1)
       .maybeSingle();
 
+    // Recorrido (camino) de las últimas 12 horas para dibujar la ruta.
+    const sinceISO = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
+    const { data: track } = await sb
+      .from("trk_positions")
+      .select("lat,lng")
+      .eq("worker_id", w.id)
+      .gte("captured_at", sinceISO)
+      .order("captured_at", { ascending: true })
+      .limit(1000);
+    const trail = (track ?? []).map(p => [p.lat, p.lng]);
+
     const km = distance?.find(d => d.worker_id === w.id)?.km ?? 0;
     const openIdle = idle?.find(i => i.worker_id === w.id);
     const stale = snap ? (Date.now() - new Date(snap.captured_at).getTime()) > 15 * 60000 : true;
@@ -172,6 +201,7 @@ async function loadFromSupabase() {
       status: stale ? "off" : openIdle ? "idle" : "moving",
       idleMin: openIdle ? Math.round((Date.now() - new Date(openIdle.started_at).getTime()) / 60000) : 0,
       img: w.photo_url || PHOTOS[w.name],
+      trail,
     });
   }
   return result;

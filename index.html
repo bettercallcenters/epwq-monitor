@@ -65,6 +65,22 @@
     .alert-card .s { font-size: 12px; color: var(--muted); margin-top: 3px; }
     .leaflet-popup-content { font-family: inherit; }
     .pin-lbl { font-weight: 700; }
+
+    /* --- Móvil: mapa grande arriba, lista compacta abajo --- */
+    @media (max-width: 760px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: 54px 62vh 1fr; }
+      main { grid-row: 2; grid-column: 1; }
+      aside { grid-row: 3; grid-column: 1; border-right: none; border-top: 1px solid var(--line); padding: 10px 12px; }
+      header { padding: 0 14px; gap: 10px; }
+      header h1 { font-size: 14px; }
+      .badge { display: none; }
+      .kpis { grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+      .kpi { padding: 8px; }
+      .kpi .n { font-size: 17px; }
+      .kpi .l { font-size: 9px; }
+      .worker { padding: 8px; }
+      .alerts { width: auto; left: 10px; right: 10px; top: 10px; }
+    }
   </style>
 </head>
 <body>

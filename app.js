@@ -169,11 +169,14 @@ async function loadFromSupabase() {
   // Última posición por trabajador
   const result = [];
   for (const w of workers ?? []) {
+    // Usamos inserted_at (hora en que el SERVIDOR recibió el punto) — es a prueba
+    // de teléfonos con el reloj mal puesto. captured_at (hora del teléfono) puede
+    // venir atrasada y marcaría "sin señal" falsamente.
     const { data: snap } = await sb
       .from("trk_positions")
-      .select("lat,lng,battery,captured_at")
+      .select("lat,lng,battery,inserted_at")
       .eq("worker_id", w.id)
-      .order("captured_at", { ascending: false })
+      .order("inserted_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -183,14 +186,14 @@ async function loadFromSupabase() {
       .from("trk_positions")
       .select("lat,lng")
       .eq("worker_id", w.id)
-      .gte("captured_at", sinceISO)
-      .order("captured_at", { ascending: true })
+      .gte("inserted_at", sinceISO)
+      .order("inserted_at", { ascending: true })
       .limit(1000);
     const trail = (track ?? []).map(p => [p.lat, p.lng]);
 
     const km = distance?.find(d => d.worker_id === w.id)?.km ?? 0;
     const openIdle = idle?.find(i => i.worker_id === w.id);
-    const stale = snap ? (Date.now() - new Date(snap.captured_at).getTime()) > 15 * 60000 : true;
+    const stale = snap ? (Date.now() - new Date(snap.inserted_at).getTime()) > 15 * 60000 : true;
 
     result.push({
       id: w.id, name: w.name,

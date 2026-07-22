@@ -206,8 +206,9 @@ async function loadRoutes(workers) {
   for (const w of workers) {
     if (w.status === "off") { routeCache[w.id] = null; continue; }
     try {
+      // La función devuelve un arreglo JSON [[lat,lng],...] con toda la ruta del turno.
       const { data, error } = await sb.rpc("trk_shift_route", { p_worker: w.id });
-      if (!error && Array.isArray(data)) routeCache[w.id] = data.map(p => [p.lat, p.lng]);
+      if (!error && Array.isArray(data)) routeCache[w.id] = data;
     } catch { /* deja la ruta anterior */ }
   }
 }

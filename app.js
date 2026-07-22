@@ -18,7 +18,7 @@ const PHOTOS = {
   "Anilu": "assets/anilu.png",
 };
 
-let map, markers = {}, trails = {}, selectedId = null, fittedOnce = false;
+let map, markers = {}, trails = {}, routeCache = {}, lastRouteAt = 0, selectedId = null, fittedOnce = false;
 
 function statusOf(w) { return w.status; }
 function initials(name) { return name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase(); }
@@ -61,15 +61,16 @@ function pinIcon(w) {
 function renderMap(workers) {
   const active = workers.filter(w => w.status !== "off");
 
-  // Dibuja/actualiza el CAMINO (recorrido) de cada trabajador.
+  // Dibuja/actualiza la RUTA DETALLADA del turno (casas trabajadas) de cada quien.
   workers.forEach(w => {
     const color = w.status === "moving" ? "#22c55e" : w.status === "idle" ? "#f59e0b" : "#9aa2b1";
-    if (w.trail && w.trail.length > 1) {
+    const route = routeCache[w.id];
+    if (route && route.length > 1) {
       if (trails[w.id]) {
-        trails[w.id].setLatLngs(w.trail).setStyle({ color });
+        trails[w.id].setLatLngs(route).setStyle({ color });
       } else {
-        trails[w.id] = L.polyline(w.trail, {
-          color, weight: 4, opacity: 0.85, lineJoin: "round", lineCap: "round",
+        trails[w.id] = L.polyline(route, {
+          color, weight: 3.5, opacity: 0.9, lineJoin: "round", lineCap: "round",
         }).addTo(map);
       }
     } else if (trails[w.id]) {
@@ -180,17 +181,6 @@ async function loadFromSupabase() {
       .limit(1)
       .maybeSingle();
 
-    // Recorrido (camino) de las últimas 12 horas para dibujar la ruta.
-    const sinceISO = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
-    const { data: track } = await sb
-      .from("trk_positions")
-      .select("lat,lng")
-      .eq("worker_id", w.id)
-      .gte("inserted_at", sinceISO)
-      .order("inserted_at", { ascending: true })
-      .limit(1000);
-    const trail = (track ?? []).map(p => [p.lat, p.lng]);
-
     const km = distance?.find(d => d.worker_id === w.id)?.km ?? 0;
     const openIdle = idle?.find(i => i.worker_id === w.id);
     const stale = snap ? (Date.now() - new Date(snap.inserted_at).getTime()) > 15 * 60000 : true;
@@ -204,10 +194,22 @@ async function loadFromSupabase() {
       status: stale ? "off" : openIdle ? "idle" : "moving",
       idleMin: openIdle ? Math.round((Date.now() - new Date(openIdle.started_at).getTime()) / 60000) : 0,
       img: w.photo_url || PHOTOS[w.name],
-      trail,
     });
   }
   return result;
+}
+
+// Carga la RUTA DETALLADA del turno de cada trabajador (vía la función trk_shift_route).
+// Se llama con menos frecuencia que el pin en vivo (es más pesada).
+async function loadRoutes(workers) {
+  const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  for (const w of workers) {
+    if (w.status === "off") { routeCache[w.id] = null; continue; }
+    try {
+      const { data, error } = await sb.rpc("trk_shift_route", { p_worker: w.id });
+      if (!error && Array.isArray(data)) routeCache[w.id] = data.map(p => [p.lat, p.lng]);
+    } catch { /* deja la ruta anterior */ }
+  }
 }
 
 function loadDemo() {
@@ -235,6 +237,12 @@ async function refresh() {
   renderMap(workers);
   renderSidebar(workers);
   renderAlerts(workers);
+
+  // La ruta detallada del turno se recarga cada ~15s (es más pesada que el pin).
+  if (!CONFIG.DEMO_MODE && Date.now() - lastRouteAt > 15000) {
+    lastRouteAt = Date.now();
+    loadRoutes(workers).then(() => renderMap(workers)).catch(() => {});
+  }
 }
 
 function tickClock() {
